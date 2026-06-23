@@ -116,10 +116,26 @@ if __name__ == "__main__":
 
     # Initialize the retargeting system
     retargeter = GMR(
-        src_human="bvh_xsens",
+        src_human="bvh_xsens_emm",
+        # src_human="bvh_xsens",
         tgt_robot=args.robot,
         actual_human_height=actual_human_height,
     )
+    import mujoco as mj
+
+    # 고정할 손목 관절들 (roll_link 뒤 + 손이 비틀리지 않게 roll도 포함)
+    FIX_JOINTS = [
+        "left_wrist_roll_joint",  "left_wrist_pitch_joint",  "left_wrist_yaw_joint",
+        "right_wrist_roll_joint", "right_wrist_pitch_joint", "right_wrist_yaw_joint",
+    ]
+    FIX_VALUE = 0.0  # 중립(곧게 편 손). 다른 각도 원하면 관절별로 dict로.
+
+    model = retargeter.model
+    fix_qadr = []
+    for n in FIX_JOINTS:
+        jid = mj.mj_name2id(model, mj.mjtObj.mjOBJ_JOINT, n)
+        assert jid >= 0, f"joint not found: {n}"
+        fix_qadr.append(model.jnt_qposadr[jid])
 
     motion_fps = int(1/frame_time)
 
@@ -166,6 +182,14 @@ if __name__ == "__main__":
 
         # retarget
         qpos = retargeter.retarget(smplx_data)
+
+        # --- 손목 하류 관절 고정 ---
+        q = retargeter.configuration.data.qpos.copy()
+        for adr in fix_qadr:
+            q[adr] = FIX_VALUE
+        retargeter.configuration.update(q)      # 고정값으로 FK 재계산 → 내부 상태도 일관
+        qpos = q
+        # -------------------------
 
         # visualize
         robot_motion_viewer.step(
